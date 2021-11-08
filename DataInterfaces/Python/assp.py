@@ -883,6 +883,7 @@ def assp_extend_f(S,f_limit,zerofill=False):
 
 def assp_interp_za(S,new_za_grid=None,interpm='linear'):
   #2017-03-28 Jana Mendrok
+  #2021-06-11 Vasileios Barlakas: Fixed bug in ptype call
   """Zenith angle interpolation of ARTS single scattering properties.
   
   Input data must cover zenith angles of 0 and 180 deg (ie extrapolation should
@@ -951,7 +952,7 @@ def assp_interp_za(S,new_za_grid=None,interpm='linear'):
             "Interpolation method '%s' requires at least 3 sample points for evaluating the function,\n" \
             "but element #%i in flattened S provides only %i zenith angle sample points." \
             %(interpm,i,s.za_grid.size) )
-        if (s.ptype==a_type[30]):
+        if (s.ptype==a_ptype[30]):
           fi = spi.PchipInterpolator(s.za_grid,s.abs_vec_data,axis=2)
           s.abs_vec_data = fi(new_za_grid)
           fi = spi.PchipInterpolator(s.za_grid,s.ext_mat_data,axis=2)
@@ -960,14 +961,14 @@ def assp_interp_za(S,new_za_grid=None,interpm='linear'):
           s.pha_mat_data = fi(new_za_grid)
           fi = spi.PchipInterpolator(s.za_grid,s.pha_mat_data,axis=4)
           s.pha_mat_data = fi(new_za_grid)
-        elif (s.ptype==a_type[20]):
+        elif (s.ptype==a_ptype[20]):
           fi = spi.PchipInterpolator(s.za_grid,s.pha_mat_data,axis=2)
           s.pha_mat_data = fi(new_za_grid)
         else:
           raise Exception( \
             "Unknow *ptype* ('%s') found in element %i of flattened S." %(s.ptype,i) )
       else:
-        if (s.ptype==a_type[30]):
+        if (s.ptype==a_ptype[30]):
           fi = spi.interp1d(s.za_grid,s.abs_vec_data,axis=2,kind=interpm,
                                           assume_sorted=True)
           s.abs_vec_data = fi(new_za_grid)
@@ -980,7 +981,7 @@ def assp_interp_za(S,new_za_grid=None,interpm='linear'):
           fi = spi.interp1d(s.za_grid,s.pha_mat_data,axis=4,kind=interpm,
                                           assume_sorted=True)
           s.pha_mat_data = fi(new_za_grid)
-        elif (s.ptype==a_type[20]):
+        elif (s.ptype==a_ptype[20]):
           fi = spi.interp1d(s.za_grid,s.pha_mat_data,axis=2,kind=interpm,
                                           assume_sorted=True)
           s.pha_mat_data = fi(new_za_grid)
@@ -993,12 +994,16 @@ def assp_interp_za(S,new_za_grid=None,interpm='linear'):
 def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
                      allow_extrap=False):
   #2017-03-28 Jana Mendrok
+  #2021-06-11 Vasileios Barlakas: Multiple bug fixes; it was not functioning
+  #				 Clarifications included in the function description 
   """Size interpolation of ARTS single scattering properties.
   
   The function allows to perform an interpolation in size, with some
-  constraints on the input data: All elements in *S* must have common
-  frequency, temperature and angular grids, and have the same "ptype".
-
+  constraints on the input data: All elements in *S* must have the 
+  same "ptype" and have common frequency, temperature and angular grids;
+  otherwise, one should first conduct interpolation in frequency, 
+  temperature and size, e.g., see rttov.get_assp.
+  
   The interpolation can be done for three size variables
     dveq : M.diameter_volume_equ is used as size parameter
     dmax : M.diameter_max is used as size parameter
@@ -1017,7 +1022,7 @@ def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
     ARTS-type single scattering data of one or several scattering elements.
   M: object or list of objects (of ScatteringMetaData)
     ARTS-type scattering meta data of one or several scattering elements.
-  new_size_grid: 1-D array
+  new_size_grid: 1-D array, e.g., np.array([new_size_value])
     New size grid. Values and unit shall match selection of *size_type*.
     Default is to create *new_size_grid* as the union of all incoming sizes.
     An interpolation is always applied and time is wasted if the data are
@@ -1114,14 +1119,17 @@ def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
   
   # First, prepare the empty (zeroed) arrays
   old_with0 = np.append(np.zeros(1),old_size_grid)
-  nos1 = old_grid_size.size+1
+  nos1 = old_size_grid.size+1
   sh = flatS[0].ext_mat_data[np.newaxis].shape
+  sh = list(sh)
   sh[0] = nos1
   e = np.zeros(sh)
   sh = flatS[0].abs_vec_data[np.newaxis].shape
+  sh = list(sh)
   sh[0] = nos1
   a = np.zeros(sh)
   sh = flatS[0].pha_mat_data[np.newaxis].shape
+  sh = list(sh)
   sh[0] = nos1
   p = np.zeros(sh)
   si = np.zeros((nos1,3))
@@ -1160,16 +1168,16 @@ def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
         "Interpolation method '%s' requires at least 3 sample points for evaluating the function,\n" \
         "but only %i size sample points given." \
         %(interpm, old_size_grid.size) )
-    fi = spi.PchipInterpolator(old_size_grid,e,axis=0,
+    fi = spi.PchipInterpolator(old_with0,e,axis=0,
                                              extrapolate=True)
     e = fi(new_size_grid)
-    fi = spi.PchipInterpolator(old_size_grid,a,axis=0,
+    fi = spi.PchipInterpolator(old_with0,a,axis=0,
                                              extrapolate=True)
     a = fi(new_size_grid)
-    fi = spi.PchipInterpolator(old_size_grid,p,axis=0,
+    fi = spi.PchipInterpolator(old_with0,p,axis=0,
                                              extrapolate=True)
     p = fi(new_size_grid)
-    fi = spi.PchipInterpolator(old_size_grid,si,axis=0,
+    fi = spi.PchipInterpolator(old_with0,si,axis=0,
                                              extrapolate=True)
     si = fi(new_size_grid)
     # Special treatment here as M[i].diameter_area_equ_aerodynamical often is
@@ -1177,33 +1185,33 @@ def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
     if (np.isnan(ar).any()):
       ar = ar*np.nan
     else:
-      fi = spi.PchipInterpolator(old_size_grid,ar,axis=0,
+      fi = spi.PchipInterpolator(old_with0,ar,axis=0,
                                                extrapolate=True)
       ar = fi(new_size_grid)
   else:
-    fi = spi.interp1d(old_size_grid,e,axis=0,kind=interpm,
+    fi = spi.interp1d(old_with0,e,axis=0,kind=interpm,
                                     bounds_error=False,fill_value='extrapolate',assume_sorted=True)
     e = fi(new_size_grid)
-    fi = spi.interp1d(old_size_grid,a,axis=0,kind=interpm,
+    fi = spi.interp1d(old_with0,a,axis=0,kind=interpm,
                                     bounds_error=False,fill_value='extrapolate',assume_sorted=True)
     a = fi(new_size_grid)
-    fi = spi.interp1d(old_size_grid,p,axis=0,kind=interpm,
+    fi = spi.interp1d(old_with0,p,axis=0,kind=interpm,
                                     bounds_error=False,fill_value='extrapolate',assume_sorted=True)
     p = fi(new_size_grid)
-    fi = spi.interp1d(old_size_grid,si,axis=0,kind=interpm,
+    fi = spi.interp1d(old_with0,si,axis=0,kind=interpm,
                                     bounds_error=False,fill_value='extrapolate',assume_sorted=True)
     si = fi(new_size_grid)
     if (np.isnan(ar).any()):
       ar = ar*np.nan
     else:
-      fi = spi.interp1d(old_size_grid,ar,axis=0,kind=interpm,
+      fi = spi.interp1d(old_with0,ar,axis=0,kind=interpm,
                                       bounds_error=False,fill_value='extrapolate',assume_sorted=True)
       ar = fi(new_size_grid)
 
   # Create new S and M
   defs = {'ptype': flatS[0].ptype,
           'version': flatS[0].version,
-          'description': flatS[0].version,
+          'description': flatS[0].description,
           'T_grid': flatS[0].T_grid,
           'f_grid': flatS[0].f_grid,
           #'aspect_ratio': np.nan,
@@ -1211,30 +1219,40 @@ def assp_interp_size(S,M,new_size_grid=None,size_type='dveq',interpm='pchip',
           'aa_grid': flatS[0].aa_grid,
           }
   if use_typhon:
-    s = tas.SingleScatteringData.from_data(params=defs)
-    m = tas.ScatteringMetaData()
-    m.version = flatM[0].version
-    m.description = flatM[0].description
-    m.source = flatM[0].source
-    m.refr_index = flatM[0].refr_index
-    S = []
-    M = []
+    # Be aware 'ScatteringMetaData' object is not iterable
+    Si = []
+    Mi = []
     for i in np.arange(new_size_grid.size):
-      S.append(s)
-      S[-1].abs_vec_data = a[i,...]
-      S[-1].ext_mat_data = e[i,...]
-      S[-1].pha_mat_data = p[i,...]
-      M.append(m)
-      M[-1].mass = si[i,0]
-      M[-1].diameter_max = si[i,1]
-      M[-1].diameter_volume_equ = si[i,2]
-      M[-1].diameter_area_equ_aerodynamical = ar[i]
-      setattr(M[-1],attname,new_size_grid[i])
+      s = tas.SingleScatteringData.from_data(params=defs)
+      m = tas.ScatteringMetaData()
+      m.version = flatS[0].version
+      m.description = 'Meta data for '+flatS[0].description
+      m.source = flatM[0].source
+      m.refr_index = flatM[0].refr_index
+      
+      S1 = []
+      M1 = []
+      S1.append(s)
+      S1[-1].abs_vec_data = a[i,...]
+      S1[-1].ext_mat_data = e[i,...]
+      S1[-1].pha_mat_data = p[i,...]
+      M1.append(m)
+      M1[-1].mass = si[i,0]
+      M1[-1].diameter_max = si[i,1]
+      M1[-1].diameter_volume_equ = si[i,2]
+      M1[-1].diameter_area_equ_aerodynamical = ar[i]
+      setattr(M1[-1],attname,new_size_grid[i])
+      
+      Mi.extend(M1)
+      Si.extend(S1)
+      del S1;del M1
   else:
     raise Exception( 'Non-typhon *SingleScatteringData* not yet implemented' )
   
+  # Add the interpolated sizes in the original data
+  S.extend(Si)
+  M.extend(Mi)
   return S,M
-
 
 
 def assp_create_mix(S0,M0,W):
@@ -1360,6 +1378,135 @@ def assp_create_mix(S0,M0,W):
       M[j].diameter_area_equ_aerodynamical += W[i,j] * M0[i,j].diameter_area_equ_aerodynamical
 
   return S,M
+
+
+def calc_g4aro(habit_id, orientation,
+                     habit_folder=None,
+                     size_range=None, size_type='dveq',
+                     freq_range=None, temp_range=None,
+                     allow_nodata=False):
+  #2021-11-03 Vasileios Barlakas: Derives the asymmetry parameter 
+  #                               for ARO ice hydrometeors following
+  #                               M. Brath's draft.                          
+  """Reads data from SSDB database for one habit (oriented ice) and derives
+  the asymmetry parameter g.
+  
+  The reading can be restricted in terms of size, frequency
+  and temperature. For frequency and temperature, data are selected as: 
+    limit1 <= data <= limit2
+  while for frequency data at the lower limit is excluded:
+    limit1 < data <= limit2.
+
+  Default is to issue an error as soon as data are missing for a frequency
+  and temperature combination. Allow missing data by setting the optional
+  argument *allow_nodata* to true. Note that sets of frequencies and
+  temperatures are allowed to differ between sizes, independently of how
+  *allow_nodata* is set. For example, for one size there can be a single
+  temperature, while other sizes have a temperature grid with several
+  elements.
+  
+  Parameters
+  ----------
+  habit_id: int
+    Habit id number.
+  orientation: str
+    Descriptor of orientation to explore for the chosen habit.
+  habit_folder: str
+    Full path to a habit folder.
+    Temporary add for testing az.random not-yet-in-DB-structure. If used,
+    provide a dummy habit_id.
+  allow_nodata: bool
+    See above. Default is false.
+  size_range: 2-element list
+    Particle size limits [unit: m]. Ignore data outside these limits. If not
+    given, no limits are applied, i.e. all available data is considered.
+  size_type: str
+    Quantity used for size cropping. Allowed options are 'dveq' (default),
+    'dmax' and 'mass'.
+  freq_range: 2-element list
+    Frequency limits [unit: Hz]. Ignore data outside these limits. If not
+    given, no limits are applied, i.e. all available data is considered.
+  temp range: 2-element list
+    Temperature limits [unit: K]. Ignore data outside these limits. If not
+    given, no limits are applied, i.e. all available data is considered.
+
+  Returns
+  -------
+  g: numpy array
+    Array of asymmetry parameter values
+  """
+  try:
+    from . import sph
+  except ImportError:
+    try: #relative import does not work from scripts in the package folder
+      import sph
+      # from Python import sph
+    except ImportError:
+      raise Exception( 'Module *sph* of database interface required but not found.' )
+  except Exception as e:
+      print('Module *assp* requires module *sph*, but failed to import it:\n%s' %str(e))
+
+  if (habit_folder is None):
+    data = utils.ssdb_import_habit( habit_id, orientation,
+                                  allow_nodata=allow_nodata,
+                                  size_range=size_range, size_type=size_type,
+                                  freq_range=freq_range, temp_range=temp_range )
+  else:
+    data = utils.ssdb_import_habit( habit_id, orientation,
+                                    habit_folder=habit_folder,
+                                  allow_nodata=allow_nodata,
+                                  size_range=size_range, size_type=size_type,
+                                  freq_range=freq_range, temp_range=temp_range )
+
+
+  grid_size_theta=90
+
+  nf = data[0]['freq'].size
+  nt = data[0]['temp'].size
+  theta_inc   = data[0]['SSD'][0,0]['SingleScatteringData']['za_inc']['data']
+
+  g    = np.empty((len(data),nf,nt,len(theta_inc)))*np.NAN
+  g_i  = np.empty((len(theta_inc)))*np.NAN
+  
+  
+  # Loop particle sizes and retrive data
+  for isize in np.arange(len(data)):     # size loop
+    
+    try:
+     ssd = data[isize]['SSD']
+     for f in np.arange(nf):              # freq loop
+      for t in np.arange(nt):             # temp loop
+        phamat_real = ssd[f,t]['SingleScatteringData']['phaMat_data_real']['data'][0,0,:,:]
+        phamat_imag = ssd[f,t]['SingleScatteringData']['phaMat_data_imag']['data'][0,0,:,:]
+      
+        ph_sph      = np.complex128(phamat_real+1j*phamat_imag)
+      
+        for i in range(len(theta_inc)):
+          # get truncation level of spherical harmonics series
+          max_ntrunc = sph.get_lmax(ph_sph[i,:])
+          if max_ntrunc % 2 ==0:
+             min_grid_size=2*max_ntrunc+2
+          else:
+             min_grid_size=2*(max_ntrunc+1) 
+          if min_grid_size<grid_size_theta:
+             min_grid_size=grid_size_theta 
+          elif grid_size_theta<min_grid_size:
+             grid_size_theta=min_grid_size       
+          if min_grid_size % 2 == 1:
+             min_grid_size=min_grid_size+1
+          # set up spherical harmonics object
+          sph_object = sph.Spharmt(min_grid_size*2,min_grid_size,max_ntrunc,1,gridtype='regular')
+          
+          # rotate spherical harmonics series, so that forward direction points toward northpole
+          # and backward direction towards southpole.
+          phase_sph_rot = sph_object.yrotate(ph_sph[i,:], -theta_inc[i]*np.pi/180)
+          g_i[i]        = np.real(phase_sph_rot[1]/phase_sph_rot[0]/np.sqrt(4*np.pi)*2)
+        g[isize,f,t,...]              = np.array(g_i) 
+    except:
+     print('For particle #%i, no data available -'
+              ' skipping this particle (ie. no equivalent entry in S & M).\n'
+              %(isize))
+  return g
 
 
 def assp_bulkprops(S, M, size_unit, psd, *args):
