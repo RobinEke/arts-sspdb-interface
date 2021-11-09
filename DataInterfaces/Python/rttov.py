@@ -35,18 +35,26 @@ def get_assp(# assp_import_ssdb parameters
              size_range=None, size_type='dmax',
              freq_range=None, temp_range=None,
              allow_nodata=False,
+             # assp_interp_za parameter
+             za_grid=None,z_interpm='linear',
              # assp_interp_t parameters
              t_grid=None, t_interpm='pchip', t_allow_extrap=False,min_tpoints=3,
              # assp_interp_f parameters
              f_grid=None, f_interpm='linear', f_allow_extrap=False, f_extend=True,
              # assp_interp_size parameters
-             size_grid=None, s_interpm='pchip', s_allow_extrap=False):
+             size_grid=None, s_interpm='pchip', s_extend=False,s_allow_extrap=False):
   #2017-05-14 Jana Mendrok
+  #2021-06-11 Vasileios Barlakas: Bug fixed; allows za interpolation
+  #				 Bug fixed; allows size interpolation
+  #                               Clarifications included in the function description
   """Get data (in ARTS SSD and SMD format) over f, T, D for one habit.
   
   Imports single scattering data within given frequency, temperature, and size
   ranges from ARTS single scattering database, converts them to ARTS format, and
-  interpolates to given grids.
+  interpolates to given grids. Note here that S and M might no have common frequency, 
+  temperature and angular grids. The user should first check the data before using
+  this function, e.g., using assp_import_ssdb. For details, the user is referred to 
+  assp.
   
   Parameters
   ----------
@@ -66,8 +74,12 @@ def get_assp(# assp_import_ssdb parameters
   #FIXME: should we keep track somehow of which data is original (directly from
   # the database) and which is interpolated/extrpolated/extend-filled?
   
+  #FIXME: it gives back the asymmetry paremater values (g), but the function does
+  # not return the value.    
+  
   # Derive all SSP data (within D, f, T ranges) for one habit. Stored in 
   # ARTS-SSP type structure single scattering and meta data structures.
+  # It additionally provides the asymmetery parameter
   S,M = assp.assp_import_ssdb(habit_id, orientation,
                               size_range=size_range, size_type=size_type,
                               freq_range=freq_range, temp_range=temp_range,
@@ -87,6 +99,8 @@ def get_assp(# assp_import_ssdb parameters
     all_f = np.array([])
     all_f,count = assp.flatappend_from_recursive_S(S,all_f,'f_grid',count=0)
     new_f_grid = np.unique( all_f )
+  else:
+    new_f_grid = f_grid
   # Since we only calculate SSP for x up to 10, we might first want to make
   # sure that the data covers the full requested f_grid (particularly when we
   # don't allow extrapolation).
@@ -96,10 +110,18 @@ def get_assp(# assp_import_ssdb parameters
   assp.assp_interp_f(S, new_f_grid=new_f_grid,
                      interpm=f_interpm,allow_extrap=f_allow_extrap)
 
+  # Interpolation into a common za_grid
+  if (za_grid is None):                 # Use high angular resolution
+      za_grid = np.arange(0,180.1,0.25) 
+      assp.assp_interp_za(S,new_za_grid=za_grid,interpm=z_interpm)
+  else:
+      assp.assp_interp_za(S,new_za_grid=za_grid,interpm=z_interpm)
+      
   # Sort in size (and interpolate the SSP and meta data to a new size grid if requested)
-  S,M = assp.assp_interp_size(S, M, new_size_grid=size_grid,
-                              size_type=size_type,
-                              interpm=s_interpm, allow_extrap=s_allow_extrap)
+  if not s_extend:
+      S,M = assp.assp_interp_size(S, M, new_size_grid=size_grid,
+                                  size_type=size_type,
+                                  interpm=s_interpm, allow_extrap=s_allow_extrap)
   
   habsum = utils.ssdb_summary( habit_id, printinfo=False )
   mD = [ habsum['ALPHA'], habsum['BETA'] ] # we keep them as string here
